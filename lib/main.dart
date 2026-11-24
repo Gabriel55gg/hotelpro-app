@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, AuthState;
 import 'models/quartos.dart';
 import 'screens/login_screen.dart';
+import 'ia_supabase.dart';
+import 'assistente_sheet.dart';
 
 // >>> COLE AQUI os dados do seu projeto (Supabase > Project Settings > API) <<<
 const String kSupabaseUrl = 'https://iibdqeacrombeqerratn.supabase.co';
@@ -525,22 +527,30 @@ class Selo extends StatelessWidget {
 
 Widget estadoVazio(BuildContext context, String glifo, String titulo, String dica) {
   final c = context.c;
-  return Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconChip(glifo: glifo, bg: c.brandSoft, tamanho: 26),
-          const SizedBox(height: 14),
-          Text(titulo, textAlign: TextAlign.center, style: TextStyle(color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(dica, textAlign: TextAlign.center, style: TextStyle(color: c.text2, fontSize: 13)),
-        ],
+  return LayoutBuilder(
+    builder: (context, box) => SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: box.maxHeight),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconChip(glifo: glifo, bg: c.brandSoft, tamanho: 26),
+                const SizedBox(height: 14),
+                Text(titulo, textAlign: TextAlign.center, style: TextStyle(color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(dica, textAlign: TextAlign.center, style: TextStyle(color: c.text2, fontSize: 13)),
+              ],
+            ),
+          ),
+        ),
       ),
     ),
   );
 }
+
 
 // ----- Avisos (snackbar) e erros dentro do diálogo -----
 void aviso(BuildContext context, String msg, {bool erro = false}) {
@@ -1105,6 +1115,7 @@ class _AnimacaoAcaoState extends State<_AnimacaoAcao> with SingleTickerProviderS
 /// Nunca coloque chave de API dentro do app: qualquer pessoa consegue extrair.
 abstract class FinanceiroIA {
   Future<String> perguntar(String pergunta, Map<String, dynamic> contexto);
+    void novaConversa() {}
 }
 
 /// Dados que a IA recebe junto com cada pergunta (caixa, quartos e movimentações).
@@ -1133,7 +1144,7 @@ Map<String, dynamic> contextoFinanceiroParaIA() {
 
 /// Versão de demonstração (responde com regras simples, sem internet).
 /// Troque pela sua: `globalFinanceiroIA = MinhaIA();`
-class IaLocalDemo implements FinanceiroIA {
+class IaLocalDemo extends FinanceiroIA {
   @override
   Future<String> perguntar(String pergunta, Map<String, dynamic> contexto) async {
     await Future.delayed(const Duration(milliseconds: 1000));
@@ -1167,7 +1178,7 @@ class IaLocalDemo implements FinanceiroIA {
   }
 }
 
-FinanceiroIA globalFinanceiroIA = IaLocalDemo();
+FinanceiroIA globalFinanceiroIA = IaSupabase();
 
 void abrirAssistenteFinanceiro(BuildContext context) {
   showModalBottomSheet(
@@ -1175,7 +1186,7 @@ void abrirAssistenteFinanceiro(BuildContext context) {
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     constraints: const BoxConstraints(maxWidth: 412),
-    builder: (_) => const AssistenteFinanceiroSheet(),
+    builder: (_) => const AssistenteIASheet(),
   );
 }
 
@@ -1201,6 +1212,13 @@ class _AssistenteFinanceiroSheetState extends State<AssistenteFinanceiroSheet> {
   bool _pensando = false;
 
   static const _sugestoes = ['Resumo do mês', 'Maiores gastos', 'Como está o caixa?', 'Ocupação'];
+
+
+  @override
+  void initState() {
+    super.initState();
+    globalFinanceiroIA.novaConversa();
+  }
 
   @override
   void dispose() {
@@ -1304,12 +1322,7 @@ class _AssistenteFinanceiroSheetState extends State<AssistenteFinanceiroSheet> {
                       ],
                     ),
                   ),
-                  Selo(texto: 'Demo', cor: c.purple, fundo: c.purpleSoft),
-                  IconButton(
-                    tooltip: 'Fechar',
-                    onPressed: () => Navigator.pop(context),
-                    icon: Text('✕', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: c.text2)),
-                  ),
+                  Selo(texto: globalFinanceiroIA is IaLocalDemo ? 'Demo' : 'IA', cor: c.purple, fundo: c.purpleSoft),
                 ],
               ),
             ),
@@ -1464,6 +1477,35 @@ class MainScreenHolder extends StatefulWidget {
 class _MainScreenHolderState extends State<MainScreenHolder> {
   int _indice = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDadosDaPousada();
+  }
+
+  Future<void> _carregarDadosDaPousada() async {
+    final g = globalGerenciador;
+    g.limpar();
+    try {
+      final client = Supabase.instance.client;
+      final email = client.auth.currentUser?.email;
+      if (email == null) return;
+      final emp = await client
+          .from('empresas')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+      if (emp == null) {
+        debugPrint('Nenhuma pousada com o e-mail $email');
+        return;
+      }
+      await g.iniciar(emp['id'].toString());
+    } catch (e) {
+      debugPrint('Erro ao carregar a pousada: $e');
+    }
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2776,7 +2818,7 @@ class _FinanceiroScreenTabState extends State<FinanceiroScreenTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Assistente financeiro IA', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text)),
+                    Text('$kNomeAssistente · Assistente IA', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text)),
                     Text('Pergunte sobre caixa, gastos e ocupação', style: TextStyle(fontSize: 12, color: c.text2)),
                   ],
                 ),
