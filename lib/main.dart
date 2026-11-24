@@ -8,6 +8,10 @@ import 'models/quartos.dart';
 import 'screens/login_screen.dart';
 import 'ia_supabase.dart';
 import 'assistente_sheet.dart';
+import 'financeiro_screen.dart';
+import 'inicio_screen.dart';
+
+
 
 // >>> COLE AQUI os dados do seu projeto (Supabase > Project Settings > API) <<<
 const String kSupabaseUrl = 'https://iibdqeacrombeqerratn.supabase.co';
@@ -71,30 +75,30 @@ class HotelColors extends ThemeExtension<HotelColors> {
           ),
         ];
 
-  // ---- CLARO: marfim com dourado ----
+    // ---- CLARO: marfim com latão ----
   static const _claro = HotelColors(
     dark: false, hc: false,
-    page: Color(0xFFE7E1D3), frame: Color(0xFF1A1408),
-    bg: Color(0xFFF7F4EC), surface: Color(0xFFFFFFFF),
-    border: Color(0xFFE4DCC8), borderSoft: Color(0xFFEEE8D8),
-    text: Color(0xFF1A1408), text2: Color(0xFF5A4F36), text3: Color(0xFF746A4E),
-    brand: Color(0xFFD4A537), brandDark: Color(0xFF7F5D06), brandSoft: Color(0xFFF7ECCB), onBrand: Color(0xFF1A1408),
-    purple: Color(0xFF8A4B08), purpleSoft: Color(0xFFF6E7D4),
-    green: Color(0xFF16A34A), greenSoft: Color(0xFFDCF5E5),
-    red: Color(0xFFDC2626), redSoft: Color(0xFFFDE4E4),
+    page: Color(0xFFE8E5DD), frame: Color(0xFF14181F),
+    bg: Color(0xFFF6F4EF), surface: Color(0xFFFFFFFF),
+    border: Color(0xFFE3DFD5), borderSoft: Color(0xFFEEEBE2),
+    text: Color(0xFF14181F), text2: Color(0xFF4D5665), text3: Color(0xFF6D7686),
+    brand: Color(0xFFB08D45), brandDark: Color(0xFF6E5420), brandSoft: Color(0xFFF3EBDA), onBrand: Color(0xFF14181F),
+    purple: Color(0xFF3B5B8C), purpleSoft: Color(0xFFE6ECF6),
+    green: Color(0xFF1F7A4F), greenSoft: Color(0xFFE0F2E9),
+    red: Color(0xFFB4323E), redSoft: Color(0xFFF8E3E5),
   );
 
-  // ---- ESCURO: preto com dourado (modo padrão) ----
+  // ---- ESCURO: grafite com latão (padrão) ----
   static const _escuro = HotelColors(
     dark: true, hc: false,
-    page: Color(0xFF050505), frame: Color(0xFF2B2718),
-    bg: Color(0xFF0A0A0A), surface: Color(0xFF161512),
-    border: Color(0xFF2B2820), borderSoft: Color(0xFF1F1D17),
-    text: Color(0xFFF5F1E8), text2: Color(0xFFB8B09E), text3: Color(0xFF8F8878),
-    brand: Color(0xFFD4A537), brandDark: Color(0xFFE8C36A), brandSoft: Color(0xFF2A2110), onBrand: Color(0xFF0A0A0A),
-    purple: Color(0xFFEAD9A6), purpleSoft: Color(0xFF2A2418),
-    green: Color(0xFF4ADE80), greenSoft: Color(0xFF12301F),
-    red: Color(0xFFF87171), redSoft: Color(0xFF3A1818),
+    page: Color(0xFF07090C), frame: Color(0xFF232A35),
+    bg: Color(0xFF0E1116), surface: Color(0xFF151A22),
+    border: Color(0xFF252C38), borderSoft: Color(0xFF1C222C),
+    text: Color(0xFFEDEAE3), text2: Color(0xFFA9B0BC), text3: Color(0xFF7C8594),
+    brand: Color(0xFFC6A664), brandDark: Color(0xFFDCC48E), brandSoft: Color(0xFF1B2130), onBrand: Color(0xFF0E1116),
+    purple: Color(0xFF8FA8D0), purpleSoft: Color(0xFF172033),
+    green: Color(0xFF3DBE8B), greenSoft: Color(0xFF11281F),
+    red: Color(0xFFE5606E), redSoft: Color(0xFF2C171B),
   );
 
   // ---- CLARO + ALTO CONTRASTE ----
@@ -1511,7 +1515,7 @@ class _MainScreenHolderState extends State<MainScreenHolder> {
   Widget build(BuildContext context) {
     // As telas são criadas aqui (e não no initState) para sempre refletirem o tema atual.
     final telas = <Widget>[
-      DashboardScreen(onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer()),
+    InicioHotelScreen(onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer()),
       const QuartosScreenTab(),
       const HospedesScreenTab(),
       const FinanceiroScreenTab(),
@@ -2693,241 +2697,6 @@ class HospedesScreenTab extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// =============================================================================
-//  FINANCEIRO
-// =============================================================================
-class FinanceiroScreenTab extends StatefulWidget {
-  const FinanceiroScreenTab({super.key});
-
-  @override
-  State<FinanceiroScreenTab> createState() => _FinanceiroScreenTabState();
-}
-
-class _FinanceiroScreenTabState extends State<FinanceiroScreenTab> {
-  int _filtro = 0; // 0 = tudo, 1 = entradas, 2 = gastos
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    final entradas = globalGerenciador.getTotalEntradasMesAtual();
-    final saidas = globalGerenciador.getTotalSaidasMesAtual();
-    final lucro = globalGerenciador.getLucroLiquidoMesAtual();
-    final historico = globalGerenciador.historicoCaixa.where((t) {
-      if (_filtro == 1) return t.tipo == 'Entrada';
-      if (_filtro == 2) return t.tipo != 'Entrada';
-      return true;
-    }).toList();
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text('Financeiro', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: c.text))),
-                BotaoSolido(label: 'Novo gasto', glifo: '−', color: c.red, onTap: () => _modalAdicionarGasto(context)),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _cartaoLucro(context, lucro),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: _cartaoResumo(context, 'Entradas', entradas, c.green, c.greenSoft, '📥')),
-                const SizedBox(width: 10),
-                Expanded(child: _cartaoResumo(context, 'Gastos', saidas, c.red, c.redSoft, '📤')),
-              ],
-            ),
-            const SizedBox(height: 10),
-            _cartaoIA(context),
-            const SizedBox(height: 18),
-            Text('Movimentações', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: c.text)),
-            const SizedBox(height: 10),
-            FiltroChips(opcoes: const ['Tudo', 'Entradas', 'Gastos'], selecionado: _filtro, onChanged: (i) => setState(() => _filtro = i)),
-            const SizedBox(height: 12),
-            Expanded(
-              child: historico.isEmpty
-                  ? estadoVazio(context, '🧾', 'Nenhuma movimentação', 'Entradas e gastos aparecem aqui.')
-                  : ListView.separated(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      itemCount: historico.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final t = historico[index];
-                        final entrada = t.tipo == 'Entrada';
-                        final cor = entrada ? c.green : c.red;
-                        return HCard(
-                          radius: 16,
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(color: entrada ? c.greenSoft : c.redSoft, shape: BoxShape.circle),
-                                child: Emo(entrada ? '📥' : '📤', tamanho: 18),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(t.descricao, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: c.text)),
-                                    Text('${dataBr(t.data)} - ${t.tipo}', style: TextStyle(fontSize: 12, color: c.text2)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('${entrada ? "+" : "-"} ${moeda(t.valor)}', style: TextStyle(fontWeight: FontWeight.w800, color: cor, fontSize: 14)),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _cartaoIA(BuildContext context) {
-    final c = context.c;
-    return Semantics(
-      button: true,
-      label: 'Abrir assistente financeiro com inteligência artificial',
-      child: BotaoAnimado(
-        onTap: () => abrirAssistenteFinanceiro(context),
-        child: HCard(
-          color: c.purpleSoft,
-          borderColor: c.purple.withValues(alpha: c.hc ? 1 : 0.5),
-          padding: const EdgeInsets.all(12),
-          radius: 16,
-          child: Row(
-            children: [
-              IconChip(glifo: '🤖', bg: c.surface),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$kNomeAssistente · Assistente IA', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text)),
-                    Text('Pergunte sobre caixa, gastos e ocupação', style: TextStyle(fontSize: 12, color: c.text2)),
-                  ],
-                ),
-              ),
-              Emo('›', tamanho: 26, cor: c.purple),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _cartaoLucro(BuildContext context, double lucro) {
-    final c = context.c;
-    final negativo = lucro < 0;
-    final cor = negativo ? c.red : c.brandDark;
-    return HCard(
-      color: negativo ? c.redSoft : c.brandSoft,
-      borderColor: cor.withValues(alpha: c.hc ? 1 : 0.5),
-      child: Row(
-        children: [
-          Emo(negativo ? '📉' : '📈', tamanho: 32),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Lucro líquido do mês', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.text2)),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(moeda(lucro), style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: cor)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _cartaoResumo(BuildContext context, String titulo, double valor, Color cor, Color fundo, String glifo) {
-    final c = context.c;
-    return HCard(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: fundo, borderRadius: BorderRadius.circular(9)),
-                child: Emo(glifo, tamanho: 15),
-              ),
-              const SizedBox(width: 8),
-              Text(titulo, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c.text2)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(moeda(valor), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: cor)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _modalAdicionarGasto(BuildContext context) {
-    final descCtrl = TextEditingController();
-    final valorCtrl = TextEditingController();
-    final erro = ValueNotifier<String?>(null);
-
-    mostrarDialogo(
-      context,
-      titulo: 'Registrar novo gasto',
-      conteudo: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 4),
-          campo(context, descCtrl, 'Descrição do gasto *'),
-          const SizedBox(height: 12),
-          campo(context, valorCtrl, 'Valor (R\$) *', tipo: TextInputType.number),
-          erroNoDialogo(context, erro),
-        ],
-      ),
-      acoes: [
-        botaoCancelar(context),
-        BotaoSolido(
-          label: 'Salvar gasto',
-          color: context.c.red,
-          onTap: () {
-            final valor = lerValor(valorCtrl.text);
-            if (descCtrl.text.trim().isEmpty || valor <= 0) {
-              erro.value = 'Informe a descrição e um valor maior que zero.';
-              return;
-            }
-            globalGerenciador.adicionarGasto(descCtrl.text.trim(), valor);
-            Navigator.pop(context);
-            setState(() {});
-            aviso(context, 'Gasto de ${moeda(valor)} registrado');
-          },
-        ),
-      ],
     );
   }
 }
