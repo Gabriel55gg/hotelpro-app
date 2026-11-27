@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -234,10 +235,58 @@ class GerenciadorQuartos {
 
   /// Chame ao sair da conta.
   void limpar() {
+    pararDeEscutar();
     empresaId = null;
     listaQuartos.clear();
     historicoCaixa.clear();
     historicoClientes.clear();
+  }
+
+  // ───────────────────── SINCRONIZAÇÃO EM TEMPO REAL ─────────────────────
+
+  RealtimeChannel? _canal;
+  Timer? _debounce;
+
+  /// Fica ouvindo o Supabase. Quando algo muda (outro aparelho ou o app admin),
+  /// recarrega os dados e chama [aoMudar] para as telas se atualizarem.
+  void escutarMudancas(VoidCallback aoMudar) {
+    final id = empresaId;
+    if (id == null) return;
+    pararDeEscutar();
+
+    void agendar() {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 700), () async {
+        if (empresaId != id) return;
+        await iniciar(id);
+        aoMudar();
+      });
+    }
+
+    final filtro = PostgresChangeFilter(
+      type: PostgresChangeFilterType.eq,
+      column: 'empresa_id',
+      value: id,
+    );
+
+    var canal = _db.channel('pousada-$id');
+    for (final tabela in ['quartos', 'caixa_transacoes', 'clientes_historico']) {
+      canal = canal.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: tabela,
+        filter: filtro,
+        callback: (_) => agendar(),
+      );
+    }
+    _canal = canal..subscribe();
+  }
+
+  void pararDeEscutar() {
+    _debounce?.cancel();
+    final c = _canal;
+    if (c != null) _db.removeChannel(c);
+    _canal = null;
   }
 
   // Salva em segundo plano. A tela atualiza na hora (memória) e o banco
@@ -311,7 +360,7 @@ class GerenciadorQuartos {
         '${q.dataEntrada!.day}/${q.dataEntrada!.month}/${q.dataEntrada!.year}';
     final novos = <ClienteHistorico>[];
 
-    historicoClientes.removeWhere((c) => c.cpf == cpf);
+    if (cpf.isNotEmpty) historicoClientes.removeWhere((c) => c.cpf == cpf);
     final principal = ClienteHistorico(
       nome: nome,
       cpf: cpf,

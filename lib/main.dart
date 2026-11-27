@@ -10,6 +10,8 @@ import 'ia_supabase.dart';
 import 'assistente_sheet.dart';
 import 'financeiro_screen.dart';
 import 'inicio_screen.dart';
+import 'ia_historico.dart';
+import 'ia_acoes.dart';
 
 
 
@@ -194,6 +196,7 @@ class _HotelProAppState extends State<HotelProApp> with WidgetsBindingObserver {
   void dispose() {
     _authSub.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    globalGerenciador.pararDeEscutar();
     super.dispose();
   }
 
@@ -1122,20 +1125,63 @@ abstract class FinanceiroIA {
     void novaConversa() {}
 }
 
-/// Dados que a IA recebe junto com cada pergunta (caixa, quartos e movimentações).
 Map<String, dynamic> contextoFinanceiroParaIA() {
   final g = globalGerenciador;
   final quartos = g.listaQuartos;
   final ocupados = quartos.where((q) => q.status == 'Ocupado').length;
+
+  // O CPF do hóspede atual vem do cadastro (CRM), ligado pelo nome.
+  String cpfDe(String nome) {
+    for (final cli in g.historicoClientes) {
+      if (cli.nome.toString().trim().toLowerCase() == nome.trim().toLowerCase()) {
+        return cli.cpf.toString();
+      }
+    }
+    return '';
+  }
+
+  final detalhes = quartos.map((q) {
+    final ocupado = q.status == 'Ocupado';
+    final nome = '${q.hospedePrincipal}'.trim();
+    return <String, dynamic>{
+      'numero': q.id,
+      'tipo': q.tipo,
+      'diaria': q.valorDiaria,
+      'status': q.status,
+      if (ocupado) ...{
+        'hospede': nome,
+        'cpf': cpfDe(nome),
+        'telefone': '${q.telefone}',
+        'placa': '${q.placaVeiculo}',
+      },
+    };
+  }).toList();
+
+  final diariasEmCurso = quartos
+      .where((q) => q.status == 'Ocupado')
+      .fold<double>(0, (a, q) => a + (q.valorDiaria as num).toDouble());
+
+  final movs = g.historicoCaixa.toList()..sort((a, b) => b.data.compareTo(a.data));
+
   return <String, dynamic>{
     'moeda': 'BRL',
+    'hoje': DateTime.now().toIso8601String(),
+    'pousada': globalNomePousada.value,
     'mes_atual': <String, dynamic>{
       'entradas': g.getTotalEntradasMesAtual(),
       'saidas': g.getTotalSaidasMesAtual(),
       'lucro_liquido': g.getLucroLiquidoMesAtual(),
     },
     'quartos': <String, dynamic>{'total': quartos.length, 'ocupados': ocupados, 'livres': quartos.length - ocupados},
-    'movimentacoes': g.historicoCaixa
+    'detalhes_dos_quartos': detalhes,
+    'soma_das_diarias_dos_quartos_ocupados': diariasEmCurso,
+    'observacao_hospedes': 'hospedes_cadastrados lista todos que já fizeram check-in alguma vez. Se o nome está nessa lista, o hóspede já se hospedou antes.',
+    'hospedes_cadastrados': g.historicoClientes
+        .take(500)
+        .map((cli) => <String, dynamic>{'nome': cli.nome, 'cpf': cli.cpf, 'telefone': cli.telefone})
+        .toList(),
+    'movimentacoes': movs
+        .take(300)
         .map((t) => <String, dynamic>{
               'tipo': t.tipo,
               'descricao': t.descricao,
@@ -1488,29 +1534,40 @@ class _MainScreenHolderState extends State<MainScreenHolder> {
     _carregarDadosDaPousada();
   }
 
-  Future<void> _carregarDadosDaPousada() async {
+   Future<void> _carregarDadosDaPousada() async {
     final g = globalGerenciador;
     g.limpar();
     try {
       final client = Supabase.instance.client;
       final email = client.auth.currentUser?.email;
       if (email == null) return;
+
+      // Mostra algo já, enquanto busca o nome verdadeiro
+      globalNomePousada.value = nomeDoEmail(email);
+
       final emp = await client
           .from('empresas')
-          .select('id')
+          .select()
           .eq('email', email)
           .maybeSingle();
+
       if (emp == null) {
         debugPrint('Nenhuma pousada com o e-mail $email');
+        if (mounted) {
+          aviso(context, 'Esta conta não está vinculada a uma pousada. Nada será salvo. Fale com o administrador.', erro: true);
+        }
         return;
       }
+
+      globalNomePousada.value = nomeDaPousada(emp, email);
+      globalEmpresaId = emp['id'].toString();
       await g.iniciar(emp['id'].toString());
+      g.escutarMudancas(() => globalAtualizar.value++);
     } catch (e) {
       debugPrint('Erro ao carregar a pousada: $e');
     }
     if (mounted) setState(() {});
   }
-
   @override
   Widget build(BuildContext context) {
     // As telas são criadas aqui (e não no initState) para sempre refletirem o tema atual.

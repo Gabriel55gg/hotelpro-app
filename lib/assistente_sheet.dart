@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'main.dart';
+import 'ia_historico.dart';
 
 /// >>> O NOME DA SUA ASSISTENTE: troque aqui e pronto (app e IA usam o mesmo nome). <<<
 const String kNomeAssistente = 'Aurora';
@@ -68,8 +69,8 @@ class AvatarAssistente extends StatelessWidget {
 class _Msg {
   final bool minha;
   final String texto;
-  final DateTime hora = DateTime.now();
-  _Msg(this.minha, this.texto);
+  final DateTime hora;
+  _Msg(this.minha, this.texto, [DateTime? hora]) : hora = hora ?? DateTime.now();
 }
 
 void abrirAssistente(BuildContext context) {
@@ -99,13 +100,14 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
     ('📊', 'Resumo do mês', 'Entradas, gastos e lucro'),
     ('🧾', 'Maiores gastos', 'Para onde o dinheiro foi'),
     ('💰', 'Como está o caixa?', 'Saldo e lucro líquido'),
-    ('🛏️', 'Ocupação', 'Quartos livres e ocupados'),
+    ('👥', 'Quem está hospedado?', 'Nomes, quartos e placas'),
   ];
 
   @override
   void initState() {
     super.initState();
     globalFinanceiroIA.novaConversa();
+    IaHistorico.nova();
   }
 
   @override
@@ -126,6 +128,7 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
   void _novaConversa() {
     HapticFeedback.selectionClick();
     globalFinanceiroIA.novaConversa();
+    IaHistorico.nova();
     setState(() {
       _msgs.clear();
       _pensando = false;
@@ -137,15 +140,22 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
     if (t.isEmpty || _pensando) return;
     HapticFeedback.selectionClick();
     _ctrl.clear();
+
+    // Últimas mensagens (antes desta) seguem junto, para a IA lembrar do assunto.
+    final anteriores = _msgs.length > 20 ? _msgs.sublist(_msgs.length - 20) : List<_Msg>.from(_msgs);
+
     setState(() {
       _msgs.add(_Msg(true, t));
       _pensando = true;
     });
     _rolar();
+    final salvouPergunta = IaHistorico.salvar(true, t);
 
     String resposta;
     try {
-      resposta = await globalFinanceiroIA.perguntar(t, contextoFinanceiroParaIA());
+      final ctx = contextoFinanceiroParaIA();
+      ctx['historico_da_conversa'] = anteriores.map((m) => <String, dynamic>{'autor': m.minha ? 'gestor' : 'assistente', 'texto': m.texto}).toList();
+      resposta = await globalFinanceiroIA.perguntar(t, ctx);
     } catch (_) {
       resposta = 'Não consegui responder agora. Tente de novo em instantes.';
     }
@@ -155,6 +165,121 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
       _pensando = false;
     });
     _rolar();
+    await salvouPergunta;
+    IaHistorico.salvar(false, resposta);
+  }
+
+  // ------------------------------------------------------- conversas anteriores
+  Future<void> _abrirConversa(ConversaResumo r) async {
+    final msgs = await IaHistorico.carregar(r.id);
+    if (!mounted) return;
+    globalFinanceiroIA.novaConversa();
+    IaHistorico.conversaId = r.id;
+    setState(() {
+      _msgs
+        ..clear()
+        ..addAll(msgs.map((m) => _Msg(m.minha, m.texto, m.hora)));
+      _pensando = false;
+    });
+    _rolar();
+  }
+
+  void _abrirHistorico() {
+    HapticFeedback.selectionClick();
+    var futuro = IaHistorico.listar();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 412),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setS) {
+          final c = ctx.c;
+          return Container(
+            height: MediaQuery.of(ctx).size.height * 0.6,
+            decoration: BoxDecoration(
+              color: c.bg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: c.border, width: c.bw),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(width: 44, height: 5, decoration: BoxDecoration(color: c.track, borderRadius: BorderRadius.circular(99))),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_rounded, color: c.brand),
+                      const SizedBox(width: 10),
+                      Text('Conversas anteriores', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: c.text)),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: c.border),
+                Expanded(
+                  child: FutureBuilder<List<ConversaResumo>>(
+                    future: futuro,
+                    builder: (_, snap) {
+                      if (snap.connectionState != ConnectionState.done) {
+                        return Center(child: CircularProgressIndicator(color: c.brand, strokeWidth: 2.5));
+                      }
+                      final lista = snap.data ?? [];
+                      if (lista.isEmpty) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text('Nenhuma conversa salva ainda.', textAlign: TextAlign.center, style: TextStyle(color: c.text2, fontSize: 14)),
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: lista.length,
+                        separatorBuilder: (_, _) => Divider(height: 1, color: c.borderSoft),
+                        itemBuilder: (_, i) {
+                          final r = lista[i];
+                          return InkWell(
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _abrirConversa(r);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 12, 8, 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(r.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: c.text)),
+                                        const SizedBox(height: 2),
+                                        Text('${dataBr(r.data)} às ${_hora(r.data)}', style: TextStyle(fontSize: 12, color: c.text2)),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Apagar conversa',
+                                    icon: Icon(Icons.delete_outline_rounded, color: c.text3, size: 20),
+                                    onPressed: () async {
+                                      await IaHistorico.apagar(r.id);
+                                      setS(() => futuro = IaHistorico.listar());
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
+    );
   }
 
   // ------------------------------------------------------------ partes da tela
@@ -175,7 +300,7 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    Text('Assistente financeira', style: TextStyle(fontSize: 12, color: c.text2)),
+                    Text('Assistente da pousada', style: TextStyle(fontSize: 12, color: c.text2)),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -187,11 +312,16 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
               ],
             ),
           ),
+          IconButton(
+            tooltip: 'Conversas anteriores',
+            onPressed: _abrirHistorico,
+            icon: Icon(Icons.history_rounded, color: c.text2),
+          ),
           if (_msgs.isNotEmpty)
             IconButton(
               tooltip: 'Nova conversa',
               onPressed: _novaConversa,
-              icon: Icon(Icons.refresh_rounded, color: c.text2),
+              icon: Icon(Icons.add_comment_outlined, color: c.text2),
             ),
           IconButton(
             tooltip: 'Fechar',
@@ -253,7 +383,7 @@ class _AssistenteIASheetState extends State<AssistenteIASheet> {
         Text('${_saudacao()}! Eu sou a $kNomeAssistente.', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: c.text)),
         const SizedBox(height: 6),
         Text(
-          'Cuido do financeiro do seu hotel. Posso resumir o caixa, apontar os maiores gastos e acompanhar a ocupação.',
+          'Conheço seus quartos, hóspedes e o caixa da pousada. Pergunte por nomes, placas, quartos, gastos e muito mais.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, height: 1.4, color: c.text2),
         ),
